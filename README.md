@@ -21,4 +21,5 @@
 > downloads the urls in `books` and saves the content in html files as `article_[i].html` organizing them into directors `page_[i]/`
 7. **`build_dataset.py`**:
 > creates `dataset.tsv` from all documents contained in `page_[i]/` subdirectories named `article_[i].html`
-8. **`longest_subsequence.py`**: contains both the recursive and dynamic programming solution to the longest increasing subsequence problem
+8. **`longest_subsequence.py`**:
+> contains both the recursive and dynamic programming solution to the longest increasing subsequence problem
