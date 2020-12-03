@@ -28,14 +28,14 @@ BASE_URL = "https://www.goodreads.com"
 HEADER_LIST = ["bookTitle","bookSeries","bookAuthors","ratingValue",
                "ratingCount","reviewCount","Plot","NumberofPages",
                "PublishingDate","Characters","Setting","Url"]
-URL_FILENAME = "books.txt"
+URL_FILENAME = "books"
 TSV_FILENAME = "dataset.tsv"
 vocabulary_filename = "vocabulary"
 INDEX_FILENAME = "index"
 TFIDF_FILENAME = "tfidf_index"
 DEFAULT_COLS = ['bookTitle','Plot','Url'] # column visualized in queries
 MONTHS = list(map(str.lower, calendar.month_name[1:]))
-VERBOSE = False # set to True for console outputs
+VERBOSE = True # set to True for console outputs
 N_RESULTS = 10 # number of results to visualize in query
 MAX_PAGE = 300
 MIN_SIZE = 100*1024 # minimum html file size
@@ -283,40 +283,6 @@ def multithread_crawler(start=1, end=30000, n_thread=10):
         t.start()
 
     for t in threads: t.join()
-
-def html_to_tsv(start=1, end=30000):
-    # creates a tsv file from the html documents in the database
-    add_header = True
-    chunk = ""
-    book_list = bookslist_from_file()
-
-    if os.path.exists(TSV_FILENAME):
-        add_header = False
-    
-    with open(TSV_FILENAME, 'a', encoding = "utf-8") as f:
-        if add_header: f.write("\t".join(HEADER_LIST) + "\n")
-
-        for i in range(start, end + 1):
-            try:
-                attr_dict = html_to_dict(i)
-            except:
-                # download missing files
-                if VERBOSE: print("[{}] File not found, download...".format(i))
-                download_article(book_list, i)
-                attr_dict = html_to_dict(i)
-
-            # plot not in english
-            if attr_dict == None:
-                continue
-            
-            row_list = list(attr_dict.values()) + [book_list[i-1]]
-            chunk += "\t".join(row_list) + "\n"
-
-            if VERBOSE: print("[{}] OK".format(i))
-
-            if i % CHUNK_SIZE == 0:
-                f.write(chunk)
-                chunk = ""
 
 
 ############### PREPROCESSING FUNCTIONS ###############
