@@ -14,11 +14,11 @@ import pandas as pd
 import numpy as np
 import pickle
 import re
-import os
+from os import listdir, mkdir, stat
+from os.path import exists, isdir
 import sys
 import string
 import calendar
-import threading
 
 
 ############### CONSTANTS ###############
@@ -75,17 +75,17 @@ def last_article(dirname=None):
 
     if dirname is None:
         try:
-            dirname = sorted(list(filter(lambda x: "page" in x, os.listdir())))[-1]
+            dirname = sorted(list(filter(lambda x: "page" in x, listdir())))[-1]
         except Exception as e:
-            if VERBOSE: print(e)
+            if VERBOSE: "[last_article()]:" + str(e)
             return 0
 
-    files = list(filter(lambda x: "article" in x, os.listdir(dirname)))
+    files = list(filter(lambda x: "article" in x, listdir(dirname)))
 
     try:
         article_n = sorted(list(map(lambda x:int(x.split("_")[1].split(".")[0]),files)))[-1]
     except Exception as e:
-        if VERBOSE: print(e)
+        if VERBOSE: "[last_article()]:" + str(e)
         return 0
 
     return article_n    
@@ -123,8 +123,8 @@ def article_to_page_str(article_n):
 
 def checkdir(dirname):
     # create directory if it doesn't exist
-    if not os.path.isdir(dirname):
-        os.mkdir(dirname)
+    if not isdir(dirname):
+        mkdir(dirname)
 
 
 
@@ -156,6 +156,20 @@ def download_missing():
             if not exists(pathname) or stat(pathname).st_size < MIN_SIZE:
                 if VERBOSE: print("[{}] Download...".format(j))
                 download_article(book_list, j)
+
+def download_missing(dirname):
+    # download missing html files
+    book_list = bookslist_from_file()
+    page_n = int(dirname.split("_")[1])
+
+    for i in range((page_n - 1) * 100 + 1, page_n * 100):
+        filename = "article_{}.html".format(i)
+        pathname = dirname + "/" + filename
+
+        # download file if not present or too small (likely corrupted)
+        if not exists(pathname) or stat(pathname).st_size < MIN_SIZE:
+            if VERBOSE: print("[{}] Download...".format(i))
+            download_article(book_list, i)
 
 def to_date(string):
     """
@@ -244,12 +258,14 @@ def crawler(book_list, start, end):
 
     checkdir(dirname)
 
-    last = last_from_dir(dirname)
+    download_missing(dirname)
+
+    last = last_article(dirname)
 
     if last > start:
         start = last
 
-    for i in range(start,len(book_list[:end])):
+    for i in range(start, len(book_list[:end])):
 
         # change directory each 100 articles
         if i % 100 == 0 and i:
@@ -264,25 +280,6 @@ def crawler(book_list, start, end):
 
         # saves webpage to file
         urlretrieve(url, pathname)
-
-def multithread_crawler(start=1, end=30000, n_thread=10):
-    book_list = bookslist_from_file()
-
-    # group article to assign to each thread
-    size = (start - start) // n_thread
-    bins = list(range(start, start + 1, size))
-
-    if n_thread == 1: bins = [start, start]
-
-    threads = []
-
-    for i in range(n_thread):
-        t = threading.Thread(target = crawler, 
-                             args = (book_list, bins[i], bins[i+1]))
-        threads.append(t)
-        t.start()
-
-    for t in threads: t.join()
 
 
 ############### PREPROCESSING FUNCTIONS ###############
