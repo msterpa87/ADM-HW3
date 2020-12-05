@@ -35,36 +35,11 @@ INDEX_FILENAME = "index"
 TFIDF_FILENAME = "tfidf_index"
 DEFAULT_COLS = ['bookTitle','Plot','Url'] # column visualized in queries
 MONTHS = list(map(str.lower, calendar.month_name[1:]))
-VERBOSE = True # set to True for console outputs
+VERBOSE = False # set to True for console outputs
 N_RESULTS = 10 # number of results to visualize in query
 MAX_PAGE = 300
 MIN_SIZE = 100*1024 # minimum html file size
 CHUNK_SIZE = 1
-
-
-############### FILES MANAGEMENT FUNCTIONS ###############
-
-
-def create_url_file():
-    """
-    Saves to file the urls from the first 300 pages 
-    of the most read books from goodreads
-    """
-
-    movies = []
-
-    with open(URL_FILENAME, 'w') as file:
-
-        for i in range(MAX_PAGE):
-            if i % 24 == 0 and VERBOSE:
-                print("Scraping page: " + str(i + 1))
-
-            url = BESTBOOK_URL + str(i+1)
-            html = urlopen(url)
-            soup = BeautifulSoup(html, 'lxml')
-
-            for tag in soup.find_all('a', {'class': 'bookTitle'}):
-                file.write(BASE_URL + tag['href'] + "\n")
 
 
 def last_article(dirname=None):
@@ -365,19 +340,24 @@ def first_series_cumulative_page_count():
     topseries = df[not_na][cols].groupby('bookSeries').head()
     filtered = topseries.bookSeries.apply(is_valid_series)
     topseries = topseries[filtered]
-    topseries['Year'] = topseries.PublishingDate.apply(lambda x: x.year)
+    topseries['Year'] = topseries['PublishingDate'].apply(lambda x: x.year)
+    topseries['bookSeries'] = topseries['bookSeries'].apply(lambda x: re.sub(r'\s#[0-9]+','',x))
+    topseries = topseries.drop('PublishingDate', axis=1)
     cols = ['bookSeries','NumberofPages','Year']
-    topseries = topseries.sort_values(['Year'])[cols].head(10)
-    topseries['cumsum_pages'] = topseries.NumberofPages.cumsum()
-    topseries['Year_count'] = topseries.Year.rank(method='dense').astype(int)-1
-
-    cols = ['Year_count','cumsum_pages']
-    plot = topseries[cols].plot(x='Year_count',
-                                y='cumsum_pages',
-                                kind='scatter',
-                                title='First 10 books series cumulative page count by year')
+    first_bookseries = topseries[cols].sort_values(['Year']).head(10).bookSeries.tolist()
+    topseries = topseries[topseries.bookSeries.isin(first_bookseries)].sort_values(['Year'])
+    topseries['Year_std'] = topseries['Year'] - topseries['Year'].min()
+    topseries['cumsum_pages'] = topseries['NumberofPages'].cumsum()
+    plot = topseries.plot(x='Year_std',
+                          y='cumsum_pages',
+                          kind='line',
+                          marker='o',
+                          markersize=5,
+                          legend=False,
+                          title='First 10 books series cumulative page count by year')
     plot.set_xlabel('Year Count')
     plot.set_ylabel('Cumulative Page Count')
+    plot = plot.set_xticklabels(topseries['Year'].unique())
 
 def load_dataset():
     # returns the local dataset as a DataFrame
@@ -385,6 +365,7 @@ def load_dataset():
     books['ratingCount'] = books.ratingCount.replace(np.nan, 0)
     books['ratingCount'] = books.ratingCount.replace(',', '', regex=True).astype(int)
     books['PublishingDate'] = books['PublishingDate'].apply(to_date)
+    books['NumberofPages'].fillna(0, inplace=True)
 
     return books
 
@@ -547,20 +528,21 @@ class SearchEngine:
 
         return vector/vector.sum()
 
-    def query(self, query, type_='and'):
+    def query(self, query, type_='and', n_results=N_RESULTS):
         # type can be ['and','cosine']
         if type_== 'and':
-            return self.and_query(query, visualize=True)
+            result_ids = self.and_query(query)
+            return self.books_df.iloc[result_ids][DEFAULT_COLS].head(n_results)
         elif type_ == 'cosine':
-            return self.similarity_query(query)
+            return self.similarity_query(query, n_results=n_results)
         elif type_ == 'rating':
-            return self.rating_query(query)
+            return self.rating_query(query, n_results=n_results)
         elif type_ == 'title':
-            return self.title_query(query)
+            return self.title_query(query, n_results=n_results)
         else:
             print("Invalid query type")
 
-    def and_query(self, query, visualize=False):
+    def and_query(self, query):
         """
         Given a query returns a DataFrame of documents where each word
         of the query appears in either the title or plot
@@ -575,17 +557,11 @@ class SearchEngine:
             documents = self.index[self.vocabulary[word]]
             result_ids = list(result_ids.intersection(frozenset(documents)))
 
-        result_ids = list(result_ids)
+        return list(result_ids)
 
-        if visualize:
-            return self.books_df.iloc[result_ids][DEFAULT_COLS].head(N_RESULTS)
-        else:
-            return result_ids
-
-
-    def similarity_query(self, query):
+    def similarity_query(self, query, n_results=N_RESULTS):
         """
-        return the top N_RESULTS according to the cosine similarity between
+        return the top n_results according to the cosine similarity between
         the plot+title ande the query
         """
         scores = {}
@@ -603,30 +579,39 @@ class SearchEngine:
             sim = cosine_similarity(score, query_tfidf)
             heapq.heappush(h, (sim, doc_id))
 
-        # take the top N_RESULTS in the heap
-        similarities, result_ids = get_largest(h, N_RESULTS)
+        # take the top n_results in the heap
+        similarities, result_ids = get_largest(h, n_results)
 
         df = books.iloc[list(result_ids),:][DEFAULT_COLS]
         df['Similarity'] = np.round(np.array(similarities), 2)
 
         return df
 
-    def rating_query(self, query):
-        # return the top N_RESULTS according to their rating aggregate value
+    def rating_query(self, query, n_results=N_RESULTS):
+        # return the top n_results according to their rating aggregate value
         scores = {}
         lengths = {}
         h = []
         size = self.vocabulary_size()
+        query_tfidf = self.tfidf_from_str(query)
         books = self.books_df
         docs_ids = self.and_query(query)
+        books['ratingValue'] /= books['ratingValue'].max()
 
         # sort documents by their rating aggregate value
         for doc_id in docs_ids:
             book = books.iloc[doc_id]
-            rating = book.ratingValue * book.ratingCount
+
+            score = self.tfidf_vector(doc_id)
+            sim = cosine_similarity(score, query_tfidf)
+
+            # aggregate rating value
+            rating = book['ratingValue'] * sim
+
+            # store in the heap
             heapq.heappush(h, (rating, doc_id))
 
-        similarities, result_ids = get_largest(h, N_RESULTS)
+        similarities, result_ids = get_largest(h, n_results)
         similarities = np.array(similarities)
         similarities /= similarities.max()
 
@@ -635,9 +620,9 @@ class SearchEngine:
 
         return df
 
-    def title_query(self, query):
+    def title_query(self, query, n_results=N_RESULTS):
         """
-        return the top N_RESULTS according to their cosine similarity
+        return the top n_results according to their cosine similarity
         between the title and the query
         """
         scores = {}
@@ -654,49 +639,10 @@ class SearchEngine:
             title_sim = cosine_similarity(title_vector, query_tfidf)
             heapq.heappush(h, (title_sim, doc_id))
 
-        similarities, result_ids = get_largest(h, N_RESULTS)
+        similarities, result_ids = get_largest(h, n_results)
 
         df = books.iloc[list(result_ids),:][DEFAULT_COLS]
         similiarities = np.array(similarities)
         df['Similarity'] = np.round(similarities, 2)
 
         return df
-
-
-############### SEARCH ENGINE FUNCTIONS ###############
-
-
-def recursive_LIS_helper(X, i):
-    if i == 0:
-        return 1
-    
-    # recursively call only on previous characters that would from an IS
-    smaller_precedessors = [j for j in range(i) if X[j] < X[i]]
-    
-    if len(smaller_precedessors) == 0:
-        return 1
-    else:
-        Y = list(map(lambda j: recursive_LIS_helper(X,j), smaller_precedessors))
-        return 1 + max(Y)
-
-def recursive_LIS(X):
-    # recursive implementation of longest increasing subsequence
-    return max(list(map(lambda i: recursive_LIS_helper(X, i), range(len(X)))))
-
-# the following instance doesn't compute in reasonable time
-# s = "ABCDEFGHIJKLMNOPQRSTUVZ"
-# recursive_LSS(s*3)
-
-def dynamic_LIS(X):
-    # dynamic programming implementation of LIS
-    n = len(X)
-    if n == 1:
-        return 1
-    V = [1]*n
-    
-    for i in range(1,n):       
-        for j in range(i):
-            if X[j] < X[i] and V[j]+1 > V[i]:
-                V[i] = V[j] + 1
-    
-    return max(V)
