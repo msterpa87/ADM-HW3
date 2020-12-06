@@ -9,8 +9,8 @@
 
 1. **`books`**:
 > a list of url of the first 300 most read books on [GoodReads](https://www.goodreads.com/)
-2. **`index`** and **`tfidf_index`**:
-> pickle dictionaries representing the inverted index `{word_id: [docs_ids]}` and tfidf `{word_id: [doc_id:freq]}`
+2. **`vocabulary`**, **`index`** and **`tfidf_index`**:
+> pickle dictionaries of each data structure
 3. **`dataset.tsv`**:
 > records of each book with each respective tag content appropriately parsed
 4. **`functions.py`**:
