@@ -22,4 +22,4 @@
 7. **`build_dataset.py`**:
 > creates `dataset.tsv` from all documents contained in `page_[i]/` subdirectories named `article_[i].html`
 8. **`longest_subsequence.py`**:
-> contains both the recursive and dynamic programming solution to the longest increasing subsequence problem
+> contains both the recursive and dynamic programming solution to the longest increasing subsequence problem, they're also shown in the notebook along with the running time analysis
